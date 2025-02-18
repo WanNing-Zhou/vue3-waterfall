@@ -1,0 +1,26 @@
+{
+  "name": "vue3-waterfall",
+  "private": true,
+  "license": "UNLICENSED",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "prettier:check": "prettier --check .",
+    "prettier:format": "prettier --write .",
+    "exam_dev": "vite --config ./example/vite.config.ts --host",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "less": "^4.2.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/tsconfig": "^0.7.0",
+    "prettier": "^3.5.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.1.0",
+    "vue": "^3.5.13",
+    "vue-tsc": "^2.2.0"
+  }
+}
