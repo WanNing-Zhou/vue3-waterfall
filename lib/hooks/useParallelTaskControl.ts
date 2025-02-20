@@ -24,7 +24,6 @@ export function useParallelTaskControl(maxParallel=8) {
                 console.error('Task error:', error);
             } finally {
                 activeTasks.value--;
-
                 // 任务完成后，检查是否还有任务需要执行
                 await runTask();
             }
@@ -32,9 +31,8 @@ export function useParallelTaskControl(maxParallel=8) {
     };
 
     // 监听任务数组和正在执行任务数量的变化
-    watch(() => [activeTasks,tasks],async () =>{
-        if (activeTasks.value < maxParallel && taskIndex.value < tasks.value.length-1) {
-            console.log('runTask')
+    watch(() => [activeTasks,tasks], async () =>{
+        if (activeTasks.value < maxParallel && taskIndex.value < tasks.value.length) {
             await runTask();
         }
     },{
