@@ -4,6 +4,8 @@
 
 基于vue3的瀑布流组件
 
+[组件演示](https://wanning-zhou.github.io/vue3-waterfall/): https://wanning-zhou.github.io/vue3-waterfall/
+
 ## 安装
 
 npm
