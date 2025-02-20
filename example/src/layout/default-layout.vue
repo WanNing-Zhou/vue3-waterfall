@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 
-import Waterfall from "../../../lib";
+import Waterfall from "wq-waterfall-vue3";
 import {data} from "./testData";
 import {ref, watch, watchEffect} from "vue";
 import WqInput from "../components/WqInput.vue";

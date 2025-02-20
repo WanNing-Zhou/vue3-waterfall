@@ -1,12 +1,11 @@
 {
   "name": "wq-waterfall-vue3",
   "license": "UNLICENSED",
-  "version": "0.0.3",
+  "version": "1.0.3",
   "description": "A Vue 3 waterfall component",
   "main": "dist/waterfall.umd.js",
   "module": "dist/waterfall.es.js",
-  "types": "dist/type/Waterfall.d.ts",
-  "style": "dist/wq-waterfall-vue3.css",
+  "types": "dist/index.d.ts",
   "scripts": {
     "prettier:check": "prettier --check .",
     "prettier:format": "prettier --write .",
@@ -32,7 +31,7 @@
     "vite-plugin-style-import": "^2.0.0",
     "vue": "^3.5.13",
     "vue-tsc": "^2.2.0",
-    "wq-waterfall-vue3": "^0.0.3"
+    "wq-waterfall-vue3": "^1.0.3"
   },
   "peerDependencies": {
     "vue": "^3.2.0"
