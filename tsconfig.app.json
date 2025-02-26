@@ -1,19 +1,32 @@
 {
   "extends": "@vue/tsconfig/tsconfig.dom.json",
   "compilerOptions": {
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "module": "ESNext", // 模块系统
+    "moduleResolution": "NodeNext", // 统一模块解析策略
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo", // 增量编译缓存
     /* Linting */
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
-    "declaration": true,
+    "strict": true, // 严格模式
+    "noUnusedLocals": true, // 未使用的局部变量
+    "noUnusedParameters": true, // 未使用的参数
+    "noFallthroughCasesInSwitch": true, // switch 语句中缺少 break
+    "noUncheckedSideEffectImports": true, // 未检查的副作用导入
+    "declaration": true, // 生成声明文件
+    "declarationMap": true, // 生成声明文件的 source map
+    "emitDeclarationOnly": true, // 只生成声明文件,
+    "outDir": "./dist",
+    //    "verbatimModuleSyntax": false, // 保留模块语法,
+    // 新增路径解析配置
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./lib/*"]
+    },
+    "declarationDir": "./dist/types" // 声明文件输出目录
   },
   "include": [
     "lib/**/*.ts",
     "lib/**/*.tsx",
     "lib/**/*.vue",
     "lib/**/*.d.ts",
+    "./images.d.ts"
   ]
 }

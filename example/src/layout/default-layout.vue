@@ -1,6 +1,6 @@
 <template>
   <div class="flex-wrapper wrapper">
-    <WqInput alias="列数：" v-model:num="columnCount"/>
+    <WqInput :min="1" alias="列数：" v-model:num="columnCount"/>
     <WqInput alias="列间距：" v-model:num="columnGap"/>
     <WqInput alias="行间距：" v-model:num="rowGap"/>
     <WqInput :span="100" alias="宽度：" v-model:num="width"/>
@@ -11,7 +11,8 @@
     </div>
 
     <div class="flex-wrapper">
-      <a class="link" href="https://github.com/WanNing-Zhou/vue3-waterfall/tree/main/example" title="示例代码" target="_blank"
+      <a class="link" href="https://github.com/WanNing-Zhou/vue3-waterfall/tree/main/example" title="示例代码"
+         target="_blank"
          rel="noopener noreferrer">
         示例代码
       </a>
@@ -22,20 +23,26 @@
     </div>
   </div>
   <div ref="layoutRef" class="default-layout">
-    <Waterfall ref="waterfallRef" class="waterfall" :width="width" :row-gap="rowGap" :column-gap="columnGap"
-               :column-count="columnCount"
-               :images="testData">
+    <Waterfall
+        show-error-image
+        class="waterfall"
+        error-image="https://pic.616pic.com/ys_img/00/18/24/HWG7eFNSHO.jpg"
+        :width="width" ref="waterfallRef"
+        :row-gap="rowGap"
+        :column-gap="columnGap"
+        :column-count="columnCount"
+        :images="testData">
       <template #item="{item}">
-        <img style="width: 100%; height: 100%" :src="item.data.src"/>
+        <img v-if="item" style="width: 100%; height: 100%" :src="item.url"/>
       </template>
     </Waterfall>
-
   </div>
 </template>
 
 <script setup lang="ts">
 
 import Waterfall from "wq-waterfall-vue3";
+// import Waterfall from "../../../lib";
 import {data} from "./testData";
 import {ref, watch, watchEffect} from "vue";
 import WqInput from "../components/WqInput.vue";
@@ -52,14 +59,16 @@ const rowGap = ref(20)
 const width = ref(1000)
 const defaultUrl = 'https://media.9game.cn/gamebase/ieu-gdc-pre-process/images/20231012/7/23/a46362917681efe17e936cd468be76fc.jpg'
 const addImageUrl = ref(defaultUrl)
-const waterfallRef = ref()
+const waterfallRef = ref<typeof Waterfall>()
 const layoutRef = ref<HTMLElement>()
 const addImageHandle = () => {
   testData.value.push({
-    src: addImageUrl.value || defaultUrl,
+    src: addImageUrl.value,
   })
-  layoutRef.value?.scrollTo(0, layoutRef.value.scrollHeight)
+  console.log(waterfallRef.value)
+  // layoutRef.value?.scrollTo(0, layoutRef.value.scrollHeight)
 }
+
 
 
 </script>
@@ -125,7 +134,8 @@ const addImageHandle = () => {
   width: 40px;
   height: 40px;
 }
-.link{
+
+.link {
   color: #333333;
   padding-left: 10px;
 }

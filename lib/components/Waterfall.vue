@@ -1,42 +1,16 @@
 <script setup lang="ts">
-import {ref, computed, onMounted, watch} from 'vue'
+import {ref, computed, onMounted, watch, reactive} from 'vue'
 import {useResizeObserver} from '../hooks/userResizeObserver'
 import {useParallelTaskControl} from "../hooks/useParallelTaskControl";
 import {debounce} from "../utils/debounce";
+import {useIntersectionObserver} from "../hooks/useIntersectionObserver.ts";
+import type {ImagesItem, Props} from "./WaterfallType.ts";
+import loadErrorImage from './loadError.png';
 
 /*
   宽度固定，图片等比例缩放；使用JS获取每张图片宽度和高度，结合 `relative` 和 `absolute` 定位
   计算每个图片的位置 `top`，`left`，保证每张新的图片都追加在当前高度最小的那列末尾
 */
-export interface Image {
-  src: string // 图片地址
-}
-
-export interface ImagesItem {
-  data: Image // 图片信息
-  // 图片地址
-  url: string
-  // 图片位置信息
-  position: {
-    width: number // 图片宽度
-    height: number // 图片高度
-    top: number // 图片距离顶部的距离
-    left: number // 图片距离左边的距离
-  },
-  // 图片在images中的索引
-  index: number
-}
-
-export interface Props {
-  images?: Image[] // 图片数组
-  columnCount?: number // 要划分的列数
-  columnGap?: number // 各列之间的间隙，单位 px
-  rowGap?: number // 各行之间的间隙，单位 px
-  width?: string | number // 瀑布流区域的总宽度，单位 px
-  maxParallelTasks?: number // 最大并行任务数
-  transitionClass?: string // 图片过渡类名
-  observerDelay?: number // 监听元素变化的延迟时间，单位 ms
-}
 
 const props = withDefaults(defineProps<Props>(), {
   images: () => [],
@@ -44,12 +18,17 @@ const props = withDefaults(defineProps<Props>(), {
   columnGap: 20,
   rowGap: 20,
   width: '100%',
-  maxParallelTasks: 16,
+  maxParallelTasks: 8,
   transitionClass: 'waterfall-transition',
   observerDelay: 50,
+  loadNum: 8,
+  showErrorImage: false,
+  errorImage: loadErrorImage,
+  loadOverCallback: () => {},
 })
 
 const waterfallRef = ref() // 瀑布流区域
+const imgRef = ref() // 图片区域
 const waterfallWidth = ref<number>() // 瀑布区域宽度
 const imageWidth = ref<number>() // 图片宽度
 const imagesProperty = ref<{ width: number; height: number; top: number; left: number }[]>([]) // 图片位置
@@ -58,6 +37,27 @@ const flag = ref(0) // 同步标识
 const loadedIndex = ref(0) // 已加载图片的索引
 const taskControl = useParallelTaskControl(props.maxParallelTasks) // 并行任务控制
 const loadedImages = ref<ImagesItem[]>([]) // 已加载的图片列表
+const maxVisibleIndex = ref(-1) // 可视区域存在图片的最大索引
+const errorImageData = reactive({
+  src: props.errorImage,
+  width: 0,
+  height: 0
+})
+
+// 监听errorImage，变化时重新获取错误图片的宽高
+watch(() => props.errorImage, () => {
+  errorImageData.src = props.errorImage
+  const image = new Image()
+  image.src = props.errorImage
+  image.onload = () => {
+    // 防止多次触发onload
+    image.onload = null
+    errorImageData.width = image.width
+    errorImageData.height = image.height
+  }
+}, {
+  immediate: true
+})
 
 // 瀑布流宽度
 const totalWidth = computed(() => {
@@ -82,23 +82,23 @@ watch(
     () => [props.columnCount, props.columnGap, props.width, props.rowGap],
     () => {
       waterfallWidth.value = waterfallRef.value.offsetWidth
-      // todo 重新计算位置
+      // 重新计算位置
       updateImagesPosition()
     },
     {
       deep: true, // 强制转成深层侦听器
+      flush: "post"
     }
 )
 
-watch(props.images, () => {
-  // 清空已有的任务
-  taskControl.clearTasks()
-  // 图片追加时，从已加载的图片索引后开始加载
-  preloadImages(flag.value, loadedIndex.value + 1)
+watch(len, (_, oldValue) => {
+  // 图片追加时, 判断图片是否已将加载完成，加载完成就加载下一批图片
+  if (maxVisibleIndex.value >= oldValue - props.loadNum) {
+    preloadImages(flag.value, loadedIndex.value)
+  }
 }, {
   deep: true,
 })
-
 
 onMounted(() => {
   waterfallWidth.value = waterfallRef.value.offsetWidth
@@ -122,7 +122,7 @@ function updateImagesPosition() {
       // 存储图片宽高和位置信息
       width: imageWidth.value,
       height: newHeight,
-      ...getPosition(loadedImages.value[i].index, newHeight)
+      ...getPosition(i, newHeight)
     }
     loadedImages.value[i].position = imagesProperty.value[i]
   }
@@ -149,17 +149,43 @@ useResizeObserver(waterfallRef, () => {
   }
 })
 
+useIntersectionObserver(imgRef, (entries) => {
+  let loadFlag = false
+
+  const showIndexArray: number[] = []
+  entries.forEach((entry) => {
+    if (entry.isIntersecting) {
+      const imgIndex = Number(entry.target.getAttribute('index') || '-1')
+      showIndexArray.push(imgIndex)
+      if (imgIndex > loadedIndex.value - props.loadNum) {
+        loadFlag = true
+      }
+    }
+  })
+
+  if (showIndexArray.length > 0) {
+    // 计算可视区域存在图片的最大索引
+    maxVisibleIndex.value = Math.max(...showIndexArray)
+  }
+
+  if (loadFlag && loadedIndex.value != len.value) {
+    // 加载下一批图片
+    preloadImages(flag.value, loadedIndex.value)
+  }
+})
+
 /**
  *  图片预加载
  *  symbol 标识
  *  preIndex 已加载的图片数量
  */
-
-async function preloadImages(symbol: number, preIndex = 0) {
+async function preloadImages(symbol: number, startIndex = 0) {
   // 计算每列的图片宽度
   imageWidth.value = ((waterfallWidth.value as number) - (props.columnCount + 1) * props.columnGap) / props.columnCount
+  // 计算结束索引
+  const endIndex = (startIndex + props.loadNum) > len.value ? len.value : (startIndex + props.loadNum)
   // 加载图片
-  for (let i = preIndex; i < len.value; i++) {
+  for (let i = startIndex; i < endIndex; i++) {
     if (symbol === flag.value) {
       // 添加任务
       taskControl.addTask(async () => {
@@ -169,7 +195,12 @@ async function preloadImages(symbol: number, preIndex = 0) {
       return false
     }
   }
+  loadedIndex.value = endIndex
+  if (loadedIndex.value === len.value) {
+    props.loadOverCallback()
+  }
 }
+
 
 /**
  *  加载图片
@@ -184,36 +215,55 @@ function loadImage(url: string, n: number, symbol: number) {
     }
     const image = new Image()
     image.src = url
+    // 图片加载完成回调
     image.onload = function () {
-
       // 防止多次触发onload
       image.onload = null
-
       if (symbol !== flag.value) {
         resolve('noLoad')
         return
       }
-
-      if (n > loadedIndex.value) {
-        loadedIndex.value = n
-      }
-
       // 图片加载完成时执行，此时可通过image.width和image.height获取到图片原始宽高
       const height = image.height / (image.width / (imageWidth.value as number))
       imagesProperty.value[loadedImages.value.length] = {
-        // 存储图片宽高和位置信息
         width: imageWidth.value as number,
-        height: height,
-        ...getPosition(loadedImages.value.length, height)
+        height: height, ...getPosition(loadedImages.value.length, height)
       }
       loadedImages.value.push({
         data: props.images[n],
         url: props.images[n].src,
+        loaded: true,
         position: imagesProperty.value[loadedImages.value.length],
         index: n,
-        // ...getPosition(loadedImages.value.length, height)
       })
       resolve('load')
+    }
+
+    // 图片加载失败回调
+    image.onerror = function () {
+      image.onerror = null
+      if (symbol !== flag.value) {
+        resolve('noLoad')
+        return
+      }
+      let height = errorImageData.height / (errorImageData.width / (imageWidth.value as number))
+      // 不显示错误图片
+      if (!props.showErrorImage){
+        height = 0
+      }
+
+      imagesProperty.value[loadedImages.value.length] = {
+        width: imageWidth.value as number,
+        height: height, ...getPosition(loadedImages.value.length, height)
+      }
+      loadedImages.value.push({
+        data: props.images[n],
+        url: props.errorImage,
+        loaded: false,
+        position: imagesProperty.value[loadedImages.value.length],
+        index: n,
+      })
+      resolve('error')
     }
   })
 }
@@ -221,11 +271,15 @@ function loadImage(url: string, n: number, symbol: number) {
 
 // 计算图片位置
 function getPosition(i: number, height: number) {
+  if (Number.isNaN(height)) {
+    height = 0
+  }
+
   // 获取图片位置信息（top，left）
   if (i < props.columnCount) {
-    preColumnHeight.value[i] = props.rowGap + height
+    preColumnHeight.value[i] = height ? (props.rowGap + height) : height
     return {
-      top: props.rowGap,
+      top: height ? props.rowGap : 0,
       left: ((imageWidth.value as number) + props.columnGap) * i + props.columnGap
     }
   } else {
@@ -237,22 +291,29 @@ function getPosition(i: number, height: number) {
         break
       }
     }
-    preColumnHeight.value[index] = top + props.rowGap + height
+    preColumnHeight.value[index] = top + (height ? (props.rowGap + height) : height)
     return {
-      top: top + props.rowGap,
+      top: top + (height ? props.rowGap : 0),
       left: ((imageWidth.value as number) + props.columnGap) * index + props.columnGap
     }
   }
 }
+
+defineOptions({
+  name: 'Waterfall',
+})
 
 defineExpose({
   // 更新瀑布流
   updateWaterfall,
   // 重新计算图片位置
   updateImagesPosition,
+  // 瀑布流区域高度
   height: height,
   // 已加载的图片列表
   loadedImages: loadedImages,
+  // 加载完成图片索引
+  loadedIndex: loadedIndex.value - 1,
 })
 
 </script>
@@ -264,11 +325,13 @@ defineExpose({
       :style="`width: ${totalWidth}; height: ${height}px;`"
   >
     <div
+        ref="imgRef"
         :class="transitionClass"
         class="waterfall-image"
-        :style="`width: ${property?.width || 0}px; height: ${property?.height || 0}px; top: ${property && property.top}px; left: ${property && property.left}px;`"
         v-for="(property, index) in imagesProperty"
+        :style="`opacity:${(!loadedImages[index].loaded && !showErrorImage)?0:1}; width: ${property?.width || 0}px; height: ${property?.height || 0}px; top: ${property && property.top}px; left: ${property && property.left}px;`"
         :key="index"
+        :index="loadedImages[index].index"
     >
       <slot name="item" :item="loadedImages[index]">
         <img :src="loadedImages[index].url" alt="" class="image-item"/>
@@ -288,10 +351,6 @@ defineExpose({
       height: 100%;
       display: inline-block;
       vertical-align: bottom;
-    }
-
-    .link-cursor {
-      cursor: pointer;
     }
   }
 

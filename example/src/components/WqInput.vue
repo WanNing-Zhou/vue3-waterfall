@@ -43,10 +43,24 @@ const changeHandle = debounce(()=> {
 }, 500)
 
 const addHandle = () => {
-  num.value += props.span
+  const _num = num.value + props.span
+  if (_num < props.min) {
+    num.value = props.min
+  }else if(_num > props.max){
+    num.value = props.max
+  }else {
+    num.value = _num
+  }
 }
 const subHandle = () => {
-  num.value -= props.span
+  const _num = num.value - props.span
+  if (_num < props.min) {
+    num.value = props.min
+  }else if(_num > props.max){
+    num.value = props.max
+  }else {
+    num.value = _num
+  }
 }
 
 </script>

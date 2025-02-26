@@ -15,5 +15,6 @@ export default defineConfig({
         alias: {
             '@public': path.resolve(__dirname, './public'),
         }
-    }
+    },
+    publicDir: path.resolve(__dirname, './public'),
 })

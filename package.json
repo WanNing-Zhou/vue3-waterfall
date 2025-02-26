@@ -1,17 +1,23 @@
 {
   "name": "wq-waterfall-vue3",
   "license": "UNLICENSED",
-  "version": "1.0.3",
-  "description": "A Vue 3 waterfall component",
+  "version": "1.0.21",
+  "author": "zwn <zwn_fobj@foxmail.com>",
+  "description": "A Vue3 waterfall component",
   "main": "dist/waterfall.umd.js",
   "module": "dist/waterfall.es.js",
-  "types": "dist/index.d.ts",
+  "typings": "dist/types/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "prettier:check": "prettier --check .",
     "prettier:format": "prettier --write .",
-    "exam_dev": "vite --config ./example/vite.config.ts --host",
-    "exam_build": "vite --config ./example/vite.config.ts build",
-    "build": "vue-tsc -b && vite build",
+    "dev:page": "vite --config ./example/vite.config.ts --host",
+    "build:exam": "vite --config ./example/vite.config.ts build",
+    "build:types": "vue-tsc --declaration --emitDeclarationOnly",
+    "build:npm": "pnpm run build:types && vite build",
+    "build": "npm run build:npm && npm run build:exam",
     "preview": "vite preview",
     "publish:patch": "npm version patch && npm publish",
     "publish:minor": "npm version minor && npm publish",
@@ -24,19 +30,13 @@
     "consola": "^3.4.0",
     "less": "^4.2.2",
     "prettier": "^3.5.0",
-    "typescript": "~5.7.2",
+    "typescript": "~5.7.3",
     "vite": "^6.1.0",
     "vite-plugin-css-injected-by-js": "^3.5.2",
     "vite-plugin-dts": "^4.5.0",
     "vite-plugin-style-import": "^2.0.0",
     "vue": "^3.5.13",
     "vue-tsc": "^2.2.0",
-    "wq-waterfall-vue3": "^1.0.3"
-  },
-  "peerDependencies": {
-    "vue": "^3.2.0"
-  },
-  "files": [
-    "dist"
-  ]
+    "wq-waterfall-vue3": "^1.0.21"
+  }
 }

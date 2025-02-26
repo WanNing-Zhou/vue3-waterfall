@@ -5,12 +5,11 @@
     "lib": ["ES2023"],
     "module": "ESNext",
     "skipLibCheck": true,
-
     /* Bundler mode */
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "isolatedModules": true,
-    "moduleDetection": "force",
+    "allowImportingTsExtensions": true, // 允许导入.ts文件
+    "isolatedModules": true, // 每个文件都是一个模块
+    "moduleDetection": "force", // 强制模块检测
     "noEmit": true,
 
     /* Linting */
