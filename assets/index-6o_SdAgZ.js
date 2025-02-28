@@ -67,6 +67,7 @@ const hasOwn = (val, key) => hasOwnProperty$1.call(val, key);
 const isArray = Array.isArray;
 const isMap = (val) => toTypeString(val) === "[object Map]";
 const isSet = (val) => toTypeString(val) === "[object Set]";
+const isDate = (val) => toTypeString(val) === "[object Date]";
 const isFunction = (val) => typeof val === "function";
 const isString = (val) => typeof val === "string";
 const isSymbol = (val) => typeof val === "symbol";
@@ -95,7 +96,7 @@ const cacheStringFunction = (fn) => {
 const camelizeRE = /-(\w)/g;
 const camelize = cacheStringFunction(
   (str) => {
-    return str.replace(camelizeRE, (_, c) => c ? c.toUpperCase() : "");
+    return str.replace(camelizeRE, (_2, c) => c ? c.toUpperCase() : "");
   }
 );
 const hyphenateRE = /\B([A-Z])/g;
@@ -187,6 +188,55 @@ const specialBooleanAttrs = `itemscope,allowfullscreen,formnovalidate,ismap,nomo
 const isSpecialBooleanAttr = /* @__PURE__ */ makeMap(specialBooleanAttrs);
 function includeBooleanAttr(value) {
   return !!value || value === "";
+}
+function looseCompareArrays(a, b) {
+  if (a.length !== b.length) return false;
+  let equal = true;
+  for (let i = 0; equal && i < a.length; i++) {
+    equal = looseEqual(a[i], b[i]);
+  }
+  return equal;
+}
+function looseEqual(a, b) {
+  if (a === b) return true;
+  let aValidType = isDate(a);
+  let bValidType = isDate(b);
+  if (aValidType || bValidType) {
+    return aValidType && bValidType ? a.getTime() === b.getTime() : false;
+  }
+  aValidType = isSymbol(a);
+  bValidType = isSymbol(b);
+  if (aValidType || bValidType) {
+    return a === b;
+  }
+  aValidType = isArray(a);
+  bValidType = isArray(b);
+  if (aValidType || bValidType) {
+    return aValidType && bValidType ? looseCompareArrays(a, b) : false;
+  }
+  aValidType = isObject(a);
+  bValidType = isObject(b);
+  if (aValidType || bValidType) {
+    if (!aValidType || !bValidType) {
+      return false;
+    }
+    const aKeysCount = Object.keys(a).length;
+    const bKeysCount = Object.keys(b).length;
+    if (aKeysCount !== bKeysCount) {
+      return false;
+    }
+    for (const key in a) {
+      const aHasKey = a.hasOwnProperty(key);
+      const bHasKey = b.hasOwnProperty(key);
+      if (aHasKey && !bHasKey || !aHasKey && bHasKey || !looseEqual(a[key], b[key])) {
+        return false;
+      }
+    }
+  }
+  return String(a) === String(b);
+}
+function looseIndexOf(arr, val) {
+  return arr.findIndex((item) => looseEqual(item, val));
 }
 const isRef$1 = (val) => {
   return !!(val && val["__v_isRef"] === true);
@@ -5422,6 +5472,9 @@ function cloneVNode(vnode, extraProps, mergeRef = false, cloneTransition = false
 function createTextVNode(text = " ", flag = 0) {
   return createVNode(Text, null, text, flag);
 }
+function createCommentVNode(text = "", asBlock = false) {
+  return asBlock ? (openBlock(), createBlock(Comment, null, text)) : createVNode(Comment, null, text);
+}
 function normalizeVNode(child) {
   if (child == null || typeof child === "boolean") {
     return createVNode(Comment);
@@ -6258,6 +6311,71 @@ const vModelText = {
     el.value = newValue;
   }
 };
+const vModelSelect = {
+  // <select multiple> value need to be deep traversed
+  deep: true,
+  created(el, { value, modifiers: { number } }, vnode) {
+    const isSetModel = isSet(value);
+    addEventListener(el, "change", () => {
+      const selectedVal = Array.prototype.filter.call(el.options, (o) => o.selected).map(
+        (o) => number ? looseToNumber(getValue(o)) : getValue(o)
+      );
+      el[assignKey](
+        el.multiple ? isSetModel ? new Set(selectedVal) : selectedVal : selectedVal[0]
+      );
+      el._assigning = true;
+      nextTick(() => {
+        el._assigning = false;
+      });
+    });
+    el[assignKey] = getModelAssigner(vnode);
+  },
+  // set value in mounted & updated because <select> relies on its children
+  // <option>s.
+  mounted(el, { value }) {
+    setSelected(el, value);
+  },
+  beforeUpdate(el, _binding, vnode) {
+    el[assignKey] = getModelAssigner(vnode);
+  },
+  updated(el, { value }) {
+    if (!el._assigning) {
+      setSelected(el, value);
+    }
+  }
+};
+function setSelected(el, value) {
+  const isMultiple = el.multiple;
+  const isArrayValue = isArray(value);
+  if (isMultiple && !isArrayValue && !isSet(value)) {
+    return;
+  }
+  for (let i = 0, l = el.options.length; i < l; i++) {
+    const option = el.options[i];
+    const optionValue = getValue(option);
+    if (isMultiple) {
+      if (isArrayValue) {
+        const optionType = typeof optionValue;
+        if (optionType === "string" || optionType === "number") {
+          option.selected = value.some((v) => String(v) === String(optionValue));
+        } else {
+          option.selected = looseIndexOf(value, optionValue) > -1;
+        }
+      } else {
+        option.selected = value.has(optionValue);
+      }
+    } else if (looseEqual(getValue(option), value)) {
+      if (el.selectedIndex !== i) el.selectedIndex = i;
+      return;
+    }
+  }
+  if (!isMultiple && el.selectedIndex !== -1) {
+    el.selectedIndex = -1;
+  }
+}
+function getValue(el) {
+  return "_value" in el ? el._value : el.value;
+}
 const rendererOptions = /* @__PURE__ */ extend({ patchProp }, nodeOps);
 let renderer;
 function ensureRenderer() {
@@ -6300,37 +6418,30 @@ function normalizeContainer(container) {
   }
   return container;
 }
-function useResizeObserver(target, callback, options = {}) {
-  let observer;
-  const stopObservation = ref(false);
-  const targets = computed(() => {
-    const targetsValue = toValue(target);
-    if (targetsValue) {
-      if (Array.isArray(targetsValue)) {
-        return targetsValue.map((el) => toValue(el)).filter((el) => el);
-      } else {
-        return [targetsValue];
-      }
+(function() {
+  try {
+    if (typeof document < "u") {
+      var a = document.createElement("style");
+      a.appendChild(document.createTextNode(".wq-waterfall[data-v-918124fa]{position:relative}.wq-waterfall .waterfall-image[data-v-918124fa]{position:absolute}.wq-waterfall .waterfall-image .image-item[data-v-918124fa]{width:100%;height:100%;display:inline-block;vertical-align:bottom}.wq-waterfall .waterfall-transition[data-v-918124fa]{transition:all .2s ease-in-out 0s}")), document.head.appendChild(a);
     }
-    return [];
-  });
-  const cleanup = () => {
-    if (observer) {
-      observer.disconnect();
-      observer = void 0;
-    }
-  };
-  const observeElements = () => {
-    if (targets.value.length && !stopObservation.value) {
-      observer = new ResizeObserver(callback);
-      targets.value.forEach((element) => observer.observe(element, options));
-    }
+  } catch (e) {
+    console.error("vite-plugin-css-injected-by-js", e);
+  }
+})();
+function L(G, i, e = {}) {
+  let l;
+  const v = ref(false), c = computed(() => {
+    const n = toValue(G);
+    return n ? Array.isArray(n) ? n.map((p2) => toValue(p2)).filter((p2) => p2) : [n] : [];
+  }), u = () => {
+    l && (l.disconnect(), l = void 0);
+  }, s = () => {
+    c.value.length && !v.value && (l = new ResizeObserver(i), c.value.forEach((n) => l.observe(n, e)));
   };
   watch(
-    () => targets.value,
+    () => c.value,
     () => {
-      cleanup();
-      observeElements();
+      u(), s();
     },
     {
       immediate: true,
@@ -6338,65 +6449,459 @@ function useResizeObserver(target, callback, options = {}) {
       flush: "post"
     }
   );
-  const stop = () => {
-    stopObservation.value = true;
-    cleanup();
+  const d = () => {
+    v.value = true, u();
+  }, g = () => {
+    v.value = false, s();
   };
-  const start = () => {
-    stopObservation.value = false;
-    observeElements();
-  };
-  onBeforeUnmount(() => cleanup());
-  return {
-    stop,
-    start
+  return onBeforeUnmount(() => u()), {
+    stop: d,
+    start: g
   };
 }
-function useParallelTaskControl(maxParallel = 8) {
-  const tasks = ref([]);
-  const activeTasks = ref(0);
-  const taskIndex = ref(0);
-  const runTask = async () => {
-    if (taskIndex.value < tasks.value.length) {
-      activeTasks.value++;
-      taskIndex.value++;
-      const currentTask = tasks.value[taskIndex.value - 1];
+function P(G = 8) {
+  const i = ref([]), e = ref(0), l = ref(0), v = async () => {
+    if (l.value < i.value.length) {
+      e.value++, l.value++;
+      const s = i.value[l.value - 1];
       try {
-        await currentTask();
-      } catch (error) {
-        console.error("Task error:", error);
+        await s();
+      } catch (d) {
+        console.error("Task error:", d);
       } finally {
-        activeTasks.value--;
-        await runTask();
+        e.value--, await v();
       }
     }
   };
-  watch(() => [activeTasks, tasks], async () => {
-    if (activeTasks.value < maxParallel && taskIndex.value < tasks.value.length) {
-      await runTask();
-    }
+  return watch(() => [e, i], async () => {
+    e.value < G && l.value < i.value.length && await v();
   }, {
     deep: true
-  });
-  const addTask = (task) => {
-    tasks.value.push(task);
-  };
-  const clearTasks = () => {
-    tasks.value = [];
-    taskIndex.value = 0;
-    activeTasks.value = 0;
-  };
-  return {
+  }), {
     // 添加任务
-    addTask,
+    addTask: (s) => {
+      i.value.push(s);
+    },
     // 清空任务
-    clearTasks,
+    clearTasks: () => {
+      i.value = [], l.value = 0, e.value = 0;
+    },
     // 正在执行的任务数量
-    activeTasks,
+    activeTasks: e,
     // 剩余任务数量
-    remainingTasks: computed(() => tasks.value.length - taskIndex.value)
+    remainingTasks: computed(() => i.value.length - l.value)
   };
 }
+function S(G, i) {
+  let e = null;
+  return function(...l) {
+    e && clearTimeout(e), e = setTimeout(() => {
+      G(...l);
+    }, i);
+  };
+}
+function q(G, i, e = {}) {
+  let l;
+  const v = ref(false), c = computed(() => {
+    const n = toValue(G);
+    return n ? Array.isArray(n) ? n.map((p2) => toValue(p2)).filter((p2) => p2) : [n] : [];
+  }), u = () => {
+    l && (l.disconnect(), l = void 0);
+  }, s = () => {
+    c.value.length && !v.value && (l = new IntersectionObserver(i, e), c.value.forEach((n) => l.observe(n)));
+  };
+  watch(
+    () => c.value,
+    () => {
+      u(), s();
+    },
+    { immediate: true, flush: "post" }
+  );
+  const d = () => {
+    v.value = true, u();
+  }, g = () => {
+    v.value = false, s();
+  };
+  return onBeforeUnmount(() => u()), { stop: d, start: g };
+}
+const X = "data:image/png;base64,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", H = ["index"], J = ["src"], _ = /* @__PURE__ */ defineComponent({
+  name: "Waterfall",
+  __name: "Waterfall",
+  props: {
+    images: { default: () => [] },
+    columnCount: { default: 3 },
+    columnGap: { default: 20 },
+    rowGap: { default: 20 },
+    width: { default: "100%" },
+    maxParallelTasks: { default: 8 },
+    transitionClass: { default: "waterfall-transition" },
+    observerDelay: { default: 50 },
+    loadNum: { default: 8 },
+    showErrorImage: { type: Boolean, default: false },
+    errorImage: { default: X },
+    loadOverCallback: { type: Function, default: () => {
+    } }
+  },
+  setup(G, { expose: i }) {
+    const e = G, l = ref(), v = ref(), c = ref(), u = ref(), s = ref([]), d = ref(Array(e.columnCount).fill(0)), g = ref(0), n = ref(0), p2 = P(e.maxParallelTasks), m = ref([]), T = ref(-1), K = reactive({
+      src: "",
+      width: 0,
+      height: 0
+    });
+    watch(() => [e.errorImage, e.showErrorImage], () => {
+      if (e.showErrorImage) {
+        K.src = e.errorImage;
+        const a = new Image();
+        a.src = e.errorImage, a.onload = () => {
+          a.onload = null, K.width = a.width, K.height = a.height;
+        };
+      }
+    }, {
+      deep: true,
+      immediate: true
+    });
+    const B = computed(() => typeof e.width == "number" ? `${e.width}px` : e.width), Y = computed(() => Math.max(...d.value) + e.rowGap), R = computed(() => e.images.length);
+    watch(
+      () => [e.columnCount, e.columnGap, e.width, e.rowGap],
+      () => {
+        c.value = l.value.offsetWidth, C();
+      },
+      {
+        deep: true,
+        // 强制转成深层侦听器
+        flush: "post"
+      }
+    ), watch(R, (a, t) => {
+      T.value >= t - e.loadNum && k(g.value, n.value);
+    }, {
+      deep: true
+    }), onMounted(() => {
+      c.value = l.value.offsetWidth, k(g.value);
+    });
+    function C() {
+      c.value = l.value.offsetWidth, u.value = (c.value - (e.columnCount + 1) * e.columnGap) / e.columnCount, d.value = Array(e.columnCount).fill(0), s.value = [];
+      for (let a = 0; a < m.value.length; a++) {
+        const { width: t, height: o } = m.value[a].position, r = o / (t / u.value);
+        s.value[a] = {
+          // 存储图片宽高和位置信息
+          width: u.value,
+          height: r,
+          ...A(a, r)
+        }, m.value[a].position = s.value[a];
+      }
+    }
+    function b() {
+      const a = l.value.offsetWidth;
+      s.value = [], c.value = a, p2.clearTasks(), c.value = l.value.offsetWidth, d.value = Array(e.columnCount).fill(Y.value), m.value = [], g.value++, k(g.value);
+    }
+    L(l, () => {
+      const a = l.value.offsetWidth;
+      e.images.length && a !== c.value && S(C, e.observerDelay)();
+    }), q(v, (a) => {
+      let t = false;
+      const o = [];
+      a.forEach((r) => {
+        if (r.isIntersecting) {
+          const f = Number(r.target.getAttribute("index") || "-1");
+          o.push(f), f > n.value - e.loadNum && (t = true);
+        }
+      }), o.length > 0 && (T.value = Math.max(...o)), t && n.value != R.value && k(g.value, n.value);
+    });
+    async function k(a, t = 0) {
+      u.value = (c.value - (e.columnCount + 1) * e.columnGap) / e.columnCount;
+      const o = t + e.loadNum > R.value ? R.value : t + e.loadNum;
+      for (let r = t; r < o; r++)
+        if (a === g.value)
+          p2.addTask(async () => {
+            await y(e.images[r].src, r, a);
+          });
+        else
+          return false;
+      n.value = o, n.value === R.value && e.loadOverCallback();
+    }
+    function y(a, t, o) {
+      return new Promise((r) => {
+        o !== g.value && r("symbolChange");
+        const f = new Image();
+        f.src = a, f.onload = function() {
+          if (f.onload = null, o !== g.value) {
+            r("noLoad");
+            return;
+          }
+          const I = f.height / (f.width / u.value);
+          s.value[m.value.length] = {
+            width: u.value,
+            height: I,
+            ...A(m.value.length, I)
+          }, m.value.push({
+            data: e.images[t],
+            url: e.images[t].src,
+            loaded: true,
+            position: s.value[m.value.length],
+            index: t
+          }), r("load");
+        }, f.onerror = function() {
+          if (f.onerror = null, o !== g.value) {
+            r("noLoad");
+            return;
+          }
+          let I = K.height / (K.width / u.value);
+          e.showErrorImage || (I = 0), s.value[m.value.length] = {
+            width: u.value,
+            height: I,
+            ...A(m.value.length, I)
+          }, m.value.push({
+            data: e.images[t],
+            url: e.errorImage,
+            loaded: false,
+            position: s.value[m.value.length],
+            index: t
+          }), r("error");
+        };
+      });
+    }
+    function A(a, t) {
+      if (Number.isNaN(t) && (t = 0), a < e.columnCount)
+        return d.value[a] = t && e.rowGap + t, {
+          top: t ? e.rowGap : 0,
+          left: (u.value + e.columnGap) * a + e.columnGap
+        };
+      {
+        const o = Math.min(...d.value);
+        let r = 0;
+        for (let f = 0; f < e.columnCount; f++)
+          if (d.value[f] === o) {
+            r = f;
+            break;
+          }
+        return d.value[r] = o + (t && e.rowGap + t), {
+          top: o + (t ? e.rowGap : 0),
+          left: (u.value + e.columnGap) * r + e.columnGap
+        };
+      }
+    }
+    return i({
+      // 更新瀑布流
+      updateWaterfall: b,
+      // 重新计算图片位置
+      updateImagesPosition: C,
+      // 瀑布流区域高度
+      height: Y,
+      // 已加载的图片列表
+      loadedImages: m,
+      // 加载完成图片索引
+      loadedIndex: n.value - 1
+    }), (a, t) => (openBlock(), createElementBlock("div", {
+      ref_key: "waterfallRef",
+      ref: l,
+      class: "wq-waterfall",
+      style: normalizeStyle(`width: ${B.value}; height: ${Y.value}px;`)
+    }, [
+      (openBlock(true), createElementBlock(Fragment, null, renderList(s.value, (o, r) => (openBlock(), createElementBlock("div", {
+        ref_for: true,
+        ref_key: "imgRef",
+        ref: v,
+        class: normalizeClass([a.transitionClass, "waterfall-image"]),
+        style: normalizeStyle(`opacity:${!m.value[r].loaded && !a.showErrorImage ? 0 : 1}; width: ${(o == null ? void 0 : o.width) || 0}px; height: ${(o == null ? void 0 : o.height) || 0}px; top: ${o && o.top}px; left: ${o && o.left}px;`),
+        key: r,
+        index: m.value[r].index
+      }, [
+        renderSlot(a.$slots, "item", {
+          item: m.value[r]
+        }, () => [
+          createBaseVNode("img", {
+            src: m.value[r].url,
+            alt: "",
+            class: "image-item"
+          }, null, 8, J)
+        ])
+      ], 14, H))), 128))
+    ], 4));
+  }
+}), $ = (G, i) => {
+  const e = G.__vccOpts || G;
+  for (const [l, v] of i)
+    e[l] = v;
+  return e;
+}, ae = /* @__PURE__ */ $(_, [["__scopeId", "data-v-918124fa"]]);
+const data = [
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.iDPrZBDnI700R61YEzeTBgHaEK?w=320&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_0"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.KA8PmSilCkfFVrFrOj6kLwHaDn?w=348&h=171&c=7&r=0&o=5&pid=1.7",
+    "name": "image_2"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.GzjJVCWF2dFArXuD570KhQHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_3"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.O852elWzZ-I2_QtXXhyPtQHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_4"
+  },
+  {
+    "src": "https://tse1.mm.bing.net/th/id/OIP.KCtjglNkBl9uDGZOnZfqGAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_5"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.nWqpzH5VtEpj50pq-puThwHaEK?w=266&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_6"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.HslUxqGnuRl41d9mpfQrCAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_7"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.aVlG44cf50kphqLSfNUQfAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_8"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.TGI-aI_RAzS4PTpi6A7RQAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_9"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.-ZpkAo4H3LWlUSr0FwuXCwHaEK?w=266&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_10"
+  },
+  {
+    "src": "",
+    "name": "wakka"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.iDPrZBDnI700R61YEzeTBgHaEK?w=320&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_0"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.KA8PmSilCkfFVrFrOj6kLwHaDn?w=348&h=171&c=7&r=0&o=5&pid=1.7",
+    "name": "image_2"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.GzjJVCWF2dFArXuD570KhQHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_3"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.O852elWzZ-I2_QtXXhyPtQHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_4"
+  },
+  {
+    "src": "https://tse1.mm.bing.net/th/id/OIP.KCtjglNkBl9uDGZOnZfqGAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_5"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.nWqpzH5VtEpj50pq-puThwHaEK?w=266&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_6"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.HslUxqGnuRl41d9mpfQrCAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_7"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.aVlG44cf50kphqLSfNUQfAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_8"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.TGI-aI_RAzS4PTpi6A7RQAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_9"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.-ZpkAo4H3LWlUSr0FwuXCwHaEK?w=266&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_10"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.iDPrZBDnI700R61YEzeTBgHaEK?w=320&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_0"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.nPCxV5y4I7Qdntlfc8kXkQHaEK?w=320&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_1"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.KA8PmSilCkfFVrFrOj6kLwHaDn?w=348&h=171&c=7&r=0&o=5&pid=1.7",
+    "name": "image_2"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.GzjJVCWF2dFArXuD570KhQHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_3"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.O852elWzZ-I2_QtXXhyPtQHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_4"
+  },
+  {
+    "src": "https://tse1.mm.bing.net/th/id/OIP.KCtjglNkBl9uDGZOnZfqGAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_5"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.nWqpzH5VtEpj50pq-puThwHaEK?w=266&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_6"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.HslUxqGnuRl41d9mpfQrCAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_7"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.aVlG44cf50kphqLSfNUQfAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_8"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.TGI-aI_RAzS4PTpi6A7RQAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_9"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.-ZpkAo4H3LWlUSr0FwuXCwHaEK?w=266&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_10"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.iDPrZBDnI700R61YEzeTBgHaEK?w=320&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_0"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.nPCxV5y4I7Qdntlfc8kXkQHaEK?w=320&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_1"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.KA8PmSilCkfFVrFrOj6kLwHaDn?w=348&h=171&c=7&r=0&o=5&pid=1.7",
+    "name": "image_2"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.GzjJVCWF2dFArXuD570KhQHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_3"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.O852elWzZ-I2_QtXXhyPtQHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_4"
+  },
+  {
+    "src": "https://tse1.mm.bing.net/th/id/OIP.KCtjglNkBl9uDGZOnZfqGAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_5"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.nWqpzH5VtEpj50pq-puThwHaEK?w=266&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_6"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.HslUxqGnuRl41d9mpfQrCAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_7"
+  },
+  {
+    "src": "https://tse4.mm.bing.net/th/id/OIP.aVlG44cf50kphqLSfNUQfAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_8"
+  },
+  {
+    "src": "",
+    "name": "wakka"
+  },
+  {
+    "src": "https://tse3.mm.bing.net/th/id/OIP.TGI-aI_RAzS4PTpi6A7RQAHaEo?w=238&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_9"
+  },
+  {
+    "src": "https://tse2.mm.bing.net/th/id/OIP.-ZpkAo4H3LWlUSr0FwuXCwHaEK?w=266&h=180&c=7&r=0&o=5&pid=1.7",
+    "name": "image_10"
+  }
+];
 function debounce(func, delay) {
   let timer = null;
   return function(...args) {
@@ -6408,238 +6913,6 @@ function debounce(func, delay) {
     }, delay);
   };
 }
-const _hoisted_1$3 = ["src"];
-const _sfc_main$3 = /* @__PURE__ */ defineComponent({
-  __name: "Waterfall",
-  props: {
-    images: { default: () => [] },
-    columnCount: { default: 3 },
-    columnGap: { default: 20 },
-    rowGap: { default: 20 },
-    width: { default: "100%" },
-    maxParallelTasks: { default: 16 },
-    transitionClass: { default: "waterfall-transition" },
-    observerDelay: { default: 50 }
-  },
-  setup(__props, { expose: __expose }) {
-    const props = __props;
-    const waterfallRef = ref();
-    const waterfallWidth = ref();
-    const imageWidth = ref();
-    const imagesProperty = ref([]);
-    const preColumnHeight = ref(Array(props.columnCount).fill(0));
-    const flag = ref(0);
-    const loadedIndex = ref(0);
-    const taskControl = useParallelTaskControl(props.maxParallelTasks);
-    const loadedImages = ref([]);
-    const totalWidth = computed(() => {
-      if (typeof props.width === "number") {
-        return `${props.width}px`;
-      } else {
-        return props.width;
-      }
-    });
-    const height = computed(() => {
-      return Math.max(...preColumnHeight.value) + props.rowGap;
-    });
-    const len = computed(() => {
-      return props.images.length;
-    });
-    watch(
-      () => [props.columnCount, props.columnGap, props.width, props.rowGap],
-      () => {
-        waterfallWidth.value = waterfallRef.value.offsetWidth;
-        updateImagesPosition();
-      },
-      {
-        deep: true
-        // 强制转成深层侦听器
-      }
-    );
-    watch(props.images, () => {
-      taskControl.clearTasks();
-      preloadImages(flag.value, loadedIndex.value + 1);
-    }, {
-      deep: true
-    });
-    onMounted(() => {
-      waterfallWidth.value = waterfallRef.value.offsetWidth;
-      preloadImages(flag.value);
-    });
-    function updateImagesPosition() {
-      waterfallWidth.value = waterfallRef.value.offsetWidth;
-      imageWidth.value = (waterfallWidth.value - (props.columnCount + 1) * props.columnGap) / props.columnCount;
-      preColumnHeight.value = Array(props.columnCount).fill(0);
-      imagesProperty.value = [];
-      for (let i = 0; i < loadedImages.value.length; i++) {
-        const { width: preWidth, height: preHeight } = loadedImages.value[i].position;
-        const newHeight = preHeight / (preWidth / imageWidth.value);
-        imagesProperty.value[i] = {
-          // 存储图片宽高和位置信息
-          width: imageWidth.value,
-          height: newHeight,
-          ...getPosition(loadedImages.value[i].index, newHeight)
-        };
-        loadedImages.value[i].position = imagesProperty.value[i];
-      }
-    }
-    function updateWaterfall() {
-      const currentWidth = waterfallRef.value.offsetWidth;
-      imagesProperty.value = [];
-      waterfallWidth.value = currentWidth;
-      taskControl.clearTasks();
-      waterfallWidth.value = waterfallRef.value.offsetWidth;
-      preColumnHeight.value = Array(props.columnCount).fill(height.value);
-      loadedImages.value = [];
-      flag.value++;
-      preloadImages(flag.value);
-    }
-    useResizeObserver(waterfallRef, () => {
-      const currentWidth = waterfallRef.value.offsetWidth;
-      if (props.images.length && currentWidth !== waterfallWidth.value) {
-        debounce(updateImagesPosition, props.observerDelay)();
-      }
-    });
-    async function preloadImages(symbol, preIndex = 0) {
-      imageWidth.value = (waterfallWidth.value - (props.columnCount + 1) * props.columnGap) / props.columnCount;
-      for (let i = preIndex; i < len.value; i++) {
-        if (symbol === flag.value) {
-          taskControl.addTask(async () => {
-            await loadImage(props.images[i].src, i, symbol);
-          });
-        } else {
-          return false;
-        }
-      }
-    }
-    function loadImage(url, n, symbol) {
-      return new Promise((resolve) => {
-        if (symbol !== flag.value) {
-          resolve("symbolChange");
-        }
-        const image = new Image();
-        image.src = url;
-        image.onload = function() {
-          image.onload = null;
-          if (symbol !== flag.value) {
-            resolve("noLoad");
-            return;
-          }
-          if (n > loadedIndex.value) {
-            loadedIndex.value = n;
-          }
-          const height2 = image.height / (image.width / imageWidth.value);
-          imagesProperty.value[loadedImages.value.length] = {
-            // 存储图片宽高和位置信息
-            width: imageWidth.value,
-            height: height2,
-            ...getPosition(loadedImages.value.length, height2)
-          };
-          loadedImages.value.push({
-            data: props.images[n],
-            url: props.images[n].src,
-            position: imagesProperty.value[loadedImages.value.length],
-            index: n
-            // ...getPosition(loadedImages.value.length, height)
-          });
-          resolve("load");
-        };
-      });
-    }
-    function getPosition(i, height2) {
-      if (i < props.columnCount) {
-        preColumnHeight.value[i] = props.rowGap + height2;
-        return {
-          top: props.rowGap,
-          left: (imageWidth.value + props.columnGap) * i + props.columnGap
-        };
-      } else {
-        const top = Math.min(...preColumnHeight.value);
-        let index = 0;
-        for (let n = 0; n < props.columnCount; n++) {
-          if (preColumnHeight.value[n] === top) {
-            index = n;
-            break;
-          }
-        }
-        preColumnHeight.value[index] = top + props.rowGap + height2;
-        return {
-          top: top + props.rowGap,
-          left: (imageWidth.value + props.columnGap) * index + props.columnGap
-        };
-      }
-    }
-    __expose({
-      // 更新瀑布流
-      updateWaterfall,
-      // 重新计算图片位置
-      updateImagesPosition,
-      height,
-      // 已加载的图片列表
-      loadedImages
-    });
-    return (_ctx, _cache) => {
-      return openBlock(), createElementBlock("div", {
-        ref_key: "waterfallRef",
-        ref: waterfallRef,
-        class: "wq-waterfall",
-        style: normalizeStyle(`width: ${totalWidth.value}; height: ${height.value}px;`)
-      }, [
-        (openBlock(true), createElementBlock(Fragment, null, renderList(imagesProperty.value, (property, index) => {
-          return openBlock(), createElementBlock("div", {
-            class: normalizeClass([_ctx.transitionClass, "waterfall-image"]),
-            style: normalizeStyle(`width: ${(property == null ? void 0 : property.width) || 0}px; height: ${(property == null ? void 0 : property.height) || 0}px; top: ${property && property.top}px; left: ${property && property.left}px;`),
-            key: index
-          }, [
-            renderSlot(_ctx.$slots, "item", {
-              item: loadedImages.value[index]
-            }, () => [
-              createBaseVNode("img", {
-                src: loadedImages.value[index].url,
-                alt: "",
-                class: "image-item"
-              }, null, 8, _hoisted_1$3)
-            ])
-          ], 6);
-        }), 128))
-      ], 4);
-    };
-  }
-});
-const _export_sfc = (sfc, props) => {
-  const target = sfc.__vccOpts || sfc;
-  for (const [key, val] of props) {
-    target[key] = val;
-  }
-  return target;
-};
-const Waterfall = /* @__PURE__ */ _export_sfc(_sfc_main$3, [["__scopeId", "data-v-720f0e8a"]]);
-const data = [
-  {
-    "src": "https://api0.lenso.ai/proxy/c4e74873f0ab094ca3a7e601cb39092747f3bbc9d6751829e7391086bcde7276f7a499cce4ceb12c6292fef31911a96c53871f868e92866447844b460f70954087fea98359e577711bd28f506eb647f5d390347cd4483b3922760e95f21eab70aa4d909b3a4f0a4047f01e18e5c90d532a054144b7e00e53c57b494d2e994b5c",
-    "name": "跨年游重庆（二）洪崖洞、湖广会馆、朝天门、磁器口……"
-  },
-  {
-    "src": "https://api0.lenso.ai/proxy/464220c50444624b4a4fdb5515d355d2fbeec256e4064075358c0013c6ce2bf6aabfcfb53468f63ddd411b6cb16c662e53871f868e92866447844b460f70954087fea98359e577711bd28f506eb647f5d390347cd4483b3922760e95f21eab70c8ad1d278b5f06a1e9d34d9fce8c629bd985dc8760728e6a715234f7f87fc060",
-    "name": "查看作品"
-  },
-  {
-    "src": "https://api2.lenso.ai/proxy/4822737826d0c7942147818aa6fda5b2b56e958241656d5d8b565854d70562cda599cf9371af05866f8bfc1fbd297bd038c6083b28cf876a616b1b7943c3348038af74e4b42e853bf06b3738fa5c67bc9d9dcec716fbb8087a9e354357ebe841db839288d64f9e9d0807b3cf3c8c28966eb3a13f6157e4b9b418d0e41015abde",
-    "name": "武汉长江天地 - hhlloo"
-  },
-  {
-    "src": "https://api1.lenso.ai/proxy/79da6aeebf7d93cbd4e351a4d38848f58037da3a50689ab9a9c5fe49988940e8e77ec4eaf4353d2f86d223ff0ae7035438c6083b28cf876a616b1b7943c3348038af74e4b42e853bf06b3738fa5c67bc9d9dcec716fbb8087a9e354357ebe84122091670e7e5846186142d62c510dac46eb3a13f6157e4b9b418d0e41015abde",
-    "name": "worries – Page 70 – Today's worry…"
-  },
-  {
-    "src": "https://api0.lenso.ai/proxy/1a270d3908c31353bb2ab446042abb3aeb32f38b7ea128853991826da85f0fd823a4fbc2d2c1972a0df8fd7ee07abdcb53871f868e92866447844b460f70954087fea98359e577711bd28f506eb647f5d390347cd4483b3922760e95f21eab707895e68a9d817dfb0fd9eeaa74067451d985dc8760728e6a715234f7f87fc060",
-    "name": "墨字泡_一天网_百科知识分享网站"
-  },
-  {
-    "src": "https://api1.lenso.ai/proxy/f2a4143f640c328a475b85aef807971717aebe99eb774580edf9892a60318c484f21b18ada6f52a5a371daf82790f08d53871f868e92866447844b460f70954087fea98359e577711bd28f506eb647f5d390347cd4483b3922760e95f21eab70bc244ee82d2b85917b35efd0f186ca53d985dc8760728e6a715234f7f87fc060",
-    "name": "最新东湖绿道线路图，自然之美的探索之旅 - 合作伙伴 - 上海和谐方舟教育科技有限公司"
-  }
-];
 const _hoisted_1$2 = { class: "flex-wrapper" };
 const _hoisted_2$1 = ["value"];
 const _sfc_main$2 = /* @__PURE__ */ defineComponent({
@@ -6670,10 +6943,24 @@ const _sfc_main$2 = /* @__PURE__ */ defineComponent({
       }
     }, 500);
     const addHandle = () => {
-      num.value += props.span;
+      const _num = num.value + props.span;
+      if (_num < props.min) {
+        num.value = props.min;
+      } else if (_num > props.max) {
+        num.value = props.max;
+      } else {
+        num.value = _num;
+      }
     };
     const subHandle = () => {
-      num.value -= props.span;
+      const _num = num.value - props.span;
+      if (_num < props.min) {
+        num.value = props.min;
+      } else if (_num > props.max) {
+        num.value = props.max;
+      } else {
+        num.value = _num;
+      }
     };
     return (_ctx, _cache) => {
       return openBlock(), createElementBlock("div", _hoisted_1$2, [
@@ -6691,19 +6978,30 @@ const _sfc_main$2 = /* @__PURE__ */ defineComponent({
     };
   }
 });
-const WqInput = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-bcfde703"]]);
+const _export_sfc = (sfc, props) => {
+  const target = sfc.__vccOpts || sfc;
+  for (const [key, val] of props) {
+    target[key] = val;
+  }
+  return target;
+};
+const WqInput = /* @__PURE__ */ _export_sfc(_sfc_main$2, [["__scopeId", "data-v-ac8f3488"]]);
 const githubSvg = "data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20x='0px'%20y='0px'%20width='100'%20height='100'%20viewBox='0%200%2050%2050'%3e%3cpath%20d='M17.791,46.836C18.502,46.53,19,45.823,19,45v-5.4c0-0.197,0.016-0.402,0.041-0.61C19.027,38.994,19.014,38.997,19,39%20c0,0-3,0-3.6,0c-1.5,0-2.8-0.6-3.4-1.8c-0.7-1.3-1-3.5-2.8-4.7C8.9,32.3,9.1,32,9.7,32c0.6,0.1,1.9,0.9,2.7,2c0.9,1.1,1.8,2,3.4,2%20c2.487,0,3.82-0.125,4.622-0.555C21.356,34.056,22.649,33,24,33v-0.025c-5.668-0.182-9.289-2.066-10.975-4.975%20c-3.665,0.042-6.856,0.405-8.677,0.707c-0.058-0.327-0.108-0.656-0.151-0.987c1.797-0.296,4.843-0.647,8.345-0.714%20c-0.112-0.276-0.209-0.559-0.291-0.849c-3.511-0.178-6.541-0.039-8.187,0.097c-0.02-0.332-0.047-0.663-0.051-0.999%20c1.649-0.135,4.597-0.27,8.018-0.111c-0.079-0.5-0.13-1.011-0.13-1.543c0-1.7,0.6-3.5,1.7-5c-0.5-1.7-1.2-5.3,0.2-6.6%20c2.7,0,4.6,1.3,5.5,2.1C21,13.4,22.9,13,25,13s4,0.4,5.6,1.1c0.9-0.8,2.8-2.1,5.5-2.1c1.5,1.4,0.7,5,0.2,6.6c1.1,1.5,1.7,3.2,1.6,5%20c0,0.484-0.045,0.951-0.11,1.409c3.499-0.172,6.527-0.034,8.204,0.102c-0.002,0.337-0.033,0.666-0.051,0.999%20c-1.671-0.138-4.775-0.28-8.359-0.089c-0.089,0.336-0.197,0.663-0.325,0.98c3.546,0.046,6.665,0.389,8.548,0.689%20c-0.043,0.332-0.093,0.661-0.151,0.987c-1.912-0.306-5.171-0.664-8.879-0.682C35.112,30.873,31.557,32.75,26,32.969V33%20c2.6,0,5,3.9,5,6.6V45c0,0.823,0.498,1.53,1.209,1.836C41.37,43.804,48,35.164,48,25C48,12.318,37.683,2,25,2S2,12.318,2,25%20C2,35.164,8.63,43.804,17.791,46.836z'%3e%3c/path%3e%3c/svg%3e";
-const _hoisted_1$1 = { class: "flex-wrapper wrapper" };
-const _hoisted_2 = { class: "flex-wrapper" };
+const _hoisted_1$1 = { class: "default-layout-page reactive" };
+const _hoisted_2 = { class: "flex-wrapper wrapper" };
 const _hoisted_3 = {
+  style: { "right": "20px", "top": "20px" },
+  class: "flex-wrapper absolute"
+};
+const _hoisted_4 = {
   class: "link",
   href: "https://github.com/WanNing-Zhou/vue3-waterfall",
   title: "github仓库",
   target: "_blank",
   rel: "noopener noreferrer"
 };
-const _hoisted_4 = ["src"];
 const _hoisted_5 = ["src"];
+const _hoisted_6 = ["src"];
 const defaultUrl = "https://media.9game.cn/gamebase/ieu-gdc-pre-process/images/20231012/7/23/a46362917681efe17e936cd468be76fc.jpg";
 const _sfc_main$1 = /* @__PURE__ */ defineComponent({
   __name: "default-layout",
@@ -6716,17 +7014,26 @@ const _sfc_main$1 = /* @__PURE__ */ defineComponent({
     const addImageUrl = ref(defaultUrl);
     const waterfallRef = ref();
     const layoutRef = ref();
+    const showErrorImage = ref(false);
+    const errImageSrc = ref("https://pic.616pic.com/ys_img/00/18/24/HWG7eFNSHO.jpg");
+    watch(
+      showErrorImage,
+      (val) => {
+        var _a;
+        (_a = waterfallRef.value) == null ? void 0 : _a.updateWaterfall();
+      }
+    );
     const addImageHandle = () => {
-      var _a;
       testData.value.push({
-        src: addImageUrl.value || defaultUrl
+        src: addImageUrl.value
       });
-      (_a = layoutRef.value) == null ? void 0 : _a.scrollTo(0, layoutRef.value.scrollHeight);
+      console.log(waterfallRef.value);
     };
     return (_ctx, _cache) => {
-      return openBlock(), createElementBlock(Fragment, null, [
-        createBaseVNode("div", _hoisted_1$1, [
+      return openBlock(), createElementBlock("div", _hoisted_1$1, [
+        createBaseVNode("div", _hoisted_2, [
           createVNode(WqInput, {
+            min: 1,
             alias: "列数：",
             num: columnCount.value,
             "onUpdate:num": _cache[0] || (_cache[0] = ($event) => columnCount.value = $event)
@@ -6748,29 +7055,44 @@ const _sfc_main$1 = /* @__PURE__ */ defineComponent({
             "onUpdate:num": _cache[3] || (_cache[3] = ($event) => width.value = $event)
           }, null, 8, ["num"]),
           createBaseVNode("div", null, [
+            _cache[7] || (_cache[7] = createBaseVNode("span", null, "是否显示错误图片", -1)),
+            withDirectives(createBaseVNode("select", {
+              "onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => showErrorImage.value = $event)
+            }, _cache[6] || (_cache[6] = [
+              createBaseVNode("option", { value: true }, "显示", -1),
+              createBaseVNode("option", { value: false }, "不显示", -1)
+            ]), 512), [
+              [vModelSelect, showErrorImage.value]
+            ])
+          ]),
+          createBaseVNode("div", null, [
             withDirectives(createBaseVNode("input", {
               placeholder: "url",
-              "onUpdate:modelValue": _cache[4] || (_cache[4] = ($event) => addImageUrl.value = $event)
+              "onUpdate:modelValue": _cache[5] || (_cache[5] = ($event) => addImageUrl.value = $event)
             }, null, 512), [
               [vModelText, addImageUrl.value]
             ]),
             createBaseVNode("button", { onClick: addImageHandle }, "添加图片")
           ]),
-          createBaseVNode("div", _hoisted_2, [
-            _cache[5] || (_cache[5] = createBaseVNode("a", {
-              class: "link",
-              href: "https://github.com/WanNing-Zhou/vue3-waterfall/tree/main/example",
-              title: "示例代码",
-              target: "_blank",
-              rel: "noopener noreferrer"
-            }, " 示例代码 ", -1)),
-            createBaseVNode("a", _hoisted_3, [
-              createBaseVNode("img", {
-                class: "github",
-                src: unref(githubSvg),
-                alt: "github"
-              }, null, 8, _hoisted_4)
-            ])
+          _cache[8] || (_cache[8] = createBaseVNode("div", null, [
+            createBaseVNode("span", { style: { "color": "indianred" } }, "ps:"),
+            createTextVNode(" 动态改变错误图片会导致瀑布流重新加载，滚动条位置会回到顶部")
+          ], -1))
+        ]),
+        createBaseVNode("div", _hoisted_3, [
+          _cache[9] || (_cache[9] = createBaseVNode("a", {
+            class: "link",
+            href: "https://github.com/WanNing-Zhou/vue3-waterfall/tree/main/example",
+            title: "示例代码",
+            target: "_blank",
+            rel: "noopener noreferrer"
+          }, " 示例代码 ", -1)),
+          createBaseVNode("a", _hoisted_4, [
+            createBaseVNode("img", {
+              class: "github",
+              src: unref(githubSvg),
+              alt: "github"
+            }, null, 8, _hoisted_5)
           ])
         ]),
         createBaseVNode("div", {
@@ -6778,30 +7100,33 @@ const _sfc_main$1 = /* @__PURE__ */ defineComponent({
           ref: layoutRef,
           class: "default-layout"
         }, [
-          createVNode(unref(Waterfall), {
+          createVNode(unref(ae), {
+            "show-error-image": showErrorImage.value,
+            class: "waterfall",
+            "error-image": errImageSrc.value,
+            width: width.value,
             ref_key: "waterfallRef",
             ref: waterfallRef,
-            class: "waterfall",
-            width: width.value,
             "row-gap": rowGap.value,
             "column-gap": columnGap.value,
             "column-count": columnCount.value,
             images: testData.value
           }, {
             item: withCtx(({ item }) => [
-              createBaseVNode("img", {
+              item ? (openBlock(), createElementBlock("img", {
+                key: 0,
                 style: { "width": "100%", "height": "100%" },
-                src: item.data.src
-              }, null, 8, _hoisted_5)
+                src: item.url
+              }, null, 8, _hoisted_6)) : createCommentVNode("", true)
             ]),
             _: 1
-          }, 8, ["width", "row-gap", "column-gap", "column-count", "images"])
+          }, 8, ["show-error-image", "error-image", "width", "row-gap", "column-gap", "column-count", "images"])
         ], 512)
-      ], 64);
+      ]);
     };
   }
 });
-const DefaultLayout = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-e9a9a0cd"]]);
+const DefaultLayout = /* @__PURE__ */ _export_sfc(_sfc_main$1, [["__scopeId", "data-v-331a064c"]]);
 const _hoisted_1 = { class: "container" };
 const _sfc_main = /* @__PURE__ */ defineComponent({
   __name: "App",

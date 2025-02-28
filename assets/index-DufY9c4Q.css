@@ -1,0 +1,78 @@
+.flex-wrapper[data-v-ac8f3488] {
+  display: flex;
+  align-items: center;
+}
+.flex-wrapper input[data-v-ac8f3488] {
+  height: 24px;
+  width: 40px;
+  text-align: center;
+}
+.flex-wrapper button[data-v-ac8f3488] {
+  padding: 6px 10px;
+}
+.reactive[data-v-331a064c] {
+  position: relative;
+}
+.absolute[data-v-331a064c] {
+  position: absolute;
+}
+.wrapper[data-v-331a064c] {
+  height: 120px;
+  padding: 0 20%;
+  color: #b2b2b2;
+  font-size: 14px;
+}
+.flex-wrapper[data-v-331a064c] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-around;
+}
+.default-layout[data-v-331a064c] {
+  width: 100%;
+  height: calc(100vh - 140px);
+  border-radius: 8px;
+  color: azure;
+  overflow-y: scroll;
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.default-layout .waterfall[data-v-331a064c] {
+  background: black;
+}
+.default-layout .aside[data-v-331a064c] {
+  width: 380px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-gap: 4px;
+  background-color: #333;
+  position: absolute;
+  left: 0;
+  height: 100%;
+}
+.default-layout .container[data-v-331a064c] {
+  position: relative;
+  margin-left: 400px;
+  height: 100%;
+  overflow: auto;
+}
+.github[data-v-331a064c] {
+  width: 40px;
+  height: 40px;
+}
+.link[data-v-331a064c] {
+  color: #333333;
+  padding-left: 10px;
+}
+
+[data-v-32e414a8]{
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+.container[data-v-32e414a8]{
+  //width: 100vw;
+  //height: 100vh;
+}
+
