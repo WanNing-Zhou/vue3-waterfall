@@ -24,7 +24,8 @@ pnpm add wq-waterfall-vue3
 ```
 
 ## 使用
-```vue
+
+``` html
 <template>
   <Waterfall :images="imageList">
     <template #item="{item}">
@@ -45,19 +46,25 @@ pnpm add wq-waterfall-vue3
 
 props
 
-| 参数            | 说明                   | 类型                         | 默认值                   |
-|---------------|----------------------|----------------------------|-----------------------|
-| `images`      | 图片列表                 | `Array<`[Image](#Image)`>` | `[]`                  |
-| `columnCount` | 列数                   | `number`                   | `3`                   |
-| `rowGap`      | 各行之间的间隙，单位 px        | `number`                   | `20`                  |
-| `columnGap`   | 各列之间的间隙，单位 px        | `number`                   | `20`                  |
-| `width`       | 瀑布流区域的总宽度，单位 px      | `string \|  number`        | `100%`                |
-|`maxParallelTasks`| 最大并行任务数              | `number`                   | `16`                  |
+| 参数               | 说明                   | 类型                         | 默认值                   |
+|------------------|----------------------|----------------------------|-----------------------|
+| `images`         | 图片列表                 | `Array<`[Image](#Image)`>` | `[]`                  |
+| `columnCount`    | 列数                   | `number`                   | `3`                   |
+| `rowGap`         | 各行之间的间隙，单位 px        | `number`                   | `20`                  |
+| `columnGap`      | 各列之间的间隙，单位 px        | `number`                   | `20`                  |
+| `width`          | 瀑布流区域的总宽度，单位 px      | `string \|  number`        | `100%`                |
+| `maxParallelTasks` | 最大并行任务数              | `number`                   | `8`                   |
 | `transitionClass` | 图片过渡类名               | `string`                   | `aterfall-transition` |
-|`observerDelay`| 监听瀑布流元素变化的延迟时间，单位 ms | `number`                   | `50`                  |
+| `observerDelay`  | 监听瀑布流元素变化的延迟时间，单位 ms | `number`                   | `50`                  |
+| `loadNum`        |每次加载图片数量|`number`| `8`                   |
+| `showErrorImage` | 是否显示加载失败的图片 | `boolean` | `false`               |
+| `errorImage`      | 加载失败的图片地址 | `string` | 默认加载错误图片              |
+|`loadOverCallback`| 图片加载完毕的回调函数 | `()=>void` | `()=>{}`              |
 
-> 最大并行任务数：当图片加载时，会开启多个任务，当任务数大于最大并行任务数时，会等待任务执行完毕后再开启新的任务，这样可以避免任务过多导致的卡顿  
+> 最大并行任务数：当图片加载时，会开启多个任务，当任务数大于最大并行任务数时，会等待任务执行完毕后再开启新的任务，这样可以避免任务过多导致的卡顿
 > 比如设置为16，当有17张图片加载时，会先加载16张图片，当这16张图片中的一张加载完毕后，会追加一个新的任务，以此类推，直到所有图片加载完毕
+
+> loadNum：每次加载图片数量，当最后加载的图片进入可视区域时，会自动加载下一批图片，loadNum就是每次加载的图片数量
 
 
 expose
@@ -104,6 +111,8 @@ export interface ImagesItem {
     },
     // 图片在images中的索引
     index: number
+    // 图片是否加载完毕
+    loaded: boolean
 }
 ```
 
@@ -113,8 +122,11 @@ export interface ImagesItem {
 
 > 当最大任务数不设置为1时，图片不是按照顺序渲染到瀑布流中，在任务队中先加载完的那张会优先渲染到瀑布流中， 当设置为1是图片会按照顺序渲染到瀑布流中
 
-> 目前并没有实现图片加载失败的处理，当图片加载失败时，会直接跳过该图片，不会影响其他图片的加载  
-> 如果有需要该功能的话，请联系我进行后续的更新。 
+> 目前已经实现了类似图片的懒加载操作，当最后一批加载完成的图片进入可视区域时，会自动加载下一批图片
+
+> 如果需要显示错误图片，需要设置 `showErrorImage` 为 `true`，并设置 `errorImage` 为错误图片的地址
+
+> 当传入的所有图片加载完成后，会触发 `loadOverCallback` 回调函数
 
 > Image数组可以从最后面追加图片，追加图片后，会自动更新瀑布流，不需要手动调用`updateWaterfall`方法  
 > 如果从数组头部或中间添加数据，或者是删除Image数组的的数据，需要手动调用`updateWaterfall`方法，更新瀑布流  

@@ -28,7 +28,6 @@ export interface Props {
     transitionClass?: string // 图片过渡类名
     observerDelay?: number // 监听元素变化的延迟时间，单位 ms
     loadNum?: number // 每次加载的图片数量
-    // errorHeight?: number // 图片加载失败时的高度
     showErrorImage?: boolean // 是否显示错误图片
     errorImage?: string // 图片加载失败时的图片地址
     loadOverCallback?: () => void // 图片加载完成的回调函数

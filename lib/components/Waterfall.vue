@@ -39,23 +39,26 @@ const taskControl = useParallelTaskControl(props.maxParallelTasks) // 并行任�
 const loadedImages = ref<ImagesItem[]>([]) // 已加载的图片列表
 const maxVisibleIndex = ref(-1) // 可视区域存在图片的最大索引
 const errorImageData = reactive({
-  src: props.errorImage,
+  src: '',
   width: 0,
   height: 0
 })
 
 // 监听errorImage，变化时重新获取错误图片的宽高
-watch(() => props.errorImage, () => {
-  errorImageData.src = props.errorImage
-  const image = new Image()
-  image.src = props.errorImage
-  image.onload = () => {
-    // 防止多次触发onload
-    image.onload = null
-    errorImageData.width = image.width
-    errorImageData.height = image.height
+watch(() => [props.errorImage,props.showErrorImage], () => {
+  if(props.showErrorImage){
+    errorImageData.src = props.errorImage
+    const image = new Image()
+    image.src = props.errorImage
+    image.onload = () => {
+      // 防止多次触发onload
+      image.onload = null
+      errorImageData.width = image.width
+      errorImageData.height = image.height
+    }
   }
 }, {
+  deep: true,
   immediate: true
 })
 

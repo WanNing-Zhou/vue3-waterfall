@@ -48,8 +48,8 @@ importers:
         specifier: ^2.2.0
         version: 2.2.0(typescript@5.7.3)
       wq-waterfall-vue3:
-        specifier: ^1.0.21
-        version: 1.0.21
+        specifier: ^1.0.23
+        version: 1.0.23
 
 packages:
 
@@ -1051,8 +1051,8 @@ packages:
       typescript:
         optional: true
 
-  wq-waterfall-vue3@1.0.21:
-    resolution: {integrity: sha512-loPLR4X3VS68XvT5hkSEFeH4txHgjykizHPcWrckfK6aNo1zGE5RsT1A7+/bt/j0wgflYV9WxLiSsaGZhaJqTw==}
+  wq-waterfall-vue3@1.0.23:
+    resolution: {integrity: sha512-QUYaZLa/KdprI74zmKjpQFoYaNidEpk6g72mQ+byXC7OfhK6+8Cmh6EjOeQuiOfeK9zZOF9b6qY8YGSFK5NFRw==}
 
   yallist@4.0.0:
     resolution: {integrity: sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==}
@@ -2003,6 +2003,8 @@ snapshots:
     optionalDependencies:
       typescript: 5.7.3
 
-  wq-waterfall-vue3@1.0.21: {}
+  wq-waterfall-vue3@1.0.23:
+    dependencies:
+      wq-waterfall-vue3: link:../../pnpm/global/5/node_modules/wq-waterfall-vue3
 
   yallist@4.0.0: {}

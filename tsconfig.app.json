@@ -20,7 +20,8 @@
     "paths": {
       "@/*": ["./lib/*"]
     },
-    "declarationDir": "./dist/types" // 声明文件输出目录
+    "declarationDir": "./dist/types", // 声明文件输出目录
+    "types": ["vite/client","wq-waterfall-vue3"]
   },
   "include": [
     "lib/**/*.ts",
